@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   update-formula:
@@ -20,6 +21,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          ref: main
+          fetch-depth: 0
 
       - name: Validate Version
         env:
@@ -99,8 +102,24 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
         run: |
+          # Configure git
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
+          
+          # Check current git state
+          echo "📍 Current branch: $(git branch --show-current 2>/dev/null || echo 'detached HEAD')"
+          echo "📍 Current commit: $(git rev-parse --short HEAD)"
+          
+          # Ensure we're on main branch
+          if ! git branch --show-current >/dev/null 2>&1; then
+            echo "🔄 In detached HEAD, checking out main branch..."
+            git checkout main
+          elif [ "$(git branch --show-current)" != "main" ]; then
+            echo "🔄 Switching to main branch..."
+            git checkout main
+          else
+            echo "✅ Already on main branch"
+          fi
           
           if git diff --quiet tkube.rb; then
             echo "ℹ️  No changes to commit"
@@ -111,8 +130,8 @@ jobs:
             - Updated URL to ${VERSION} source archive
             - Updated SHA256 checksum
             - Automated update via GitHub Actions"
-            git push
-            echo "✅ Formula updated and committed"
+            git push origin main
+            echo "✅ Formula updated and committed to main branch"
           fi
 
       - name: Update Homebrew Tap
