@@ -1,0 +1,232 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.goos }}-${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux, darwin, windows]
+        goarch: [amd64, arm64]
+
+    env:
+      CGO_ENABLED: "0"
+      VERSION: ${{ github.ref_name }}
+      BIN: tkube
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Print Go env
+        run: go env
+
+      - name: Build
+        run: |
+          export GOOS=${{ matrix.goos }}
+          export GOARCH=${{ matrix.goarch }}
+
+          # Create directories
+          mkdir -p dist pkg
+
+          # Binary name
+          OUT="${BIN}"
+          if [ "$GOOS" = "windows" ]; then OUT="${BIN}.exe"; fi
+
+          # Embed version into binary (strip 'v' prefix from tag)
+          VERSION_CLEAN=${VERSION#v}
+          LDFLAGS="-s -w -X main.version=${VERSION_CLEAN}"
+
+          echo ">> Building ${OUT} for $GOOS/$GOARCH (version: ${VERSION_CLEAN})"
+          go build -trimpath -ldflags "$LDFLAGS" -o "dist/${OUT}"
+
+          # Verify binary was created
+          if [ ! -f "dist/${OUT}" ]; then
+            echo "Error: Binary was not created"
+            exit 1
+          fi
+
+          # Package
+          PKG_NAME="${BIN}_${VERSION}_${GOOS}_${GOARCH}"
+          mkdir -p "pkg/${PKG_NAME}"
+          cp "dist/${OUT}" "pkg/${PKG_NAME}/"
+          
+          # Copy additional files if they exist
+          [ -f LICENSE ] && cp LICENSE "pkg/${PKG_NAME}/"
+          [ -f README.md ] && cp README.md "pkg/${PKG_NAME}/"
+
+          # Create archive
+          cd pkg
+          if [ "$GOOS" = "windows" ]; then
+            zip -r "${PKG_NAME}.zip" "${PKG_NAME}"
+            echo "Created: ${PKG_NAME}.zip"
+          else
+            tar -czf "${PKG_NAME}.tar.gz" "${PKG_NAME}"
+            echo "Created: ${PKG_NAME}.tar.gz"
+          fi
+          cd ..
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.BIN }}_${{ env.VERSION }}_${{ matrix.goos }}_${{ matrix.goarch }}
+          path: |
+            pkg/*.tar.gz
+            pkg/*.zip
+          if-no-files-found: error
+
+  checksums:
+    name: Checksums
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Generate SHA256
+        run: |
+          cd dist
+          # Find all archives and generate checksums
+          find . -type f \( -name "*.tar.gz" -o -name "*.zip" \) -exec basename {} \; | sort | while read file; do
+            find . -name "$file" -exec sha256sum {} \; | sed 's|./[^/]*/||'
+          done > checksums.txt
+          echo "Generated checksums:"
+          cat checksums.txt
+
+      - name: Upload checksums
+        uses: actions/upload-artifact@v4
+        with:
+          name: checksums
+          path: dist/checksums.txt
+
+  release:
+    name: Publish Release
+    needs: [build, checksums]
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.id }}
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: List files
+        run: |
+          echo "Artifacts:"
+          find dist -type f -maxdepth 3 -print
+
+      - name: Create GitHub Release
+        id: release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          files: |
+            dist/**/*.tar.gz
+            dist/**/*.zip
+            dist/checksums/checksums.txt
+
+  update-formula:
+    name: Update Homebrew Formula
+    needs: release
+    runs-on: ubuntu-latest
+    if: needs.release.outputs.release_created
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update Homebrew Formula
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          # Calculate SHA256 of source archive
+          ARCHIVE_URL="https://github.com/${{ github.repository }}/archive/${VERSION}.tar.gz"
+          echo "Downloading source archive: $ARCHIVE_URL"
+          
+          # Download and calculate SHA256
+          curl -sL "$ARCHIVE_URL" | sha256sum | cut -d' ' -f1 > sha256.txt
+          SHA256=$(cat sha256.txt)
+          echo "Calculated SHA256: $SHA256"
+          
+          # Update the formula
+          sed -i "s|url \".*\"|url \"$ARCHIVE_URL\"|" tkube.rb
+          sed -i "s|sha256 \".*\"|sha256 \"$SHA256\"|" tkube.rb
+          
+          echo "Updated tkube.rb:"
+          grep -A1 -B1 "url\|sha256" tkube.rb
+
+      - name: Commit Formula Update
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          
+          if git diff --quiet tkube.rb; then
+            echo "No changes to commit"
+          else
+            git add tkube.rb
+            git commit -m "Update Homebrew formula to ${{ github.ref_name }}"
+            git push
+            echo "Formula updated and committed"
+          fi
+
+      - name: Update Homebrew Tap (if exists)
+        env:
+          VERSION: ${{ github.ref_name }}
+          HOMEBREW_TAP_REPO: ${{ github.repository_owner }}/homebrew-tap
+        run: |
+          # Check if homebrew-tap repository exists
+          if curl -s -f -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+             "https://api.github.com/repos/${HOMEBREW_TAP_REPO}" > /dev/null; then
+            
+            echo "Homebrew tap repository found: ${HOMEBREW_TAP_REPO}"
+            
+            # Clone the tap repository
+            git clone "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${HOMEBREW_TAP_REPO}.git" homebrew-tap
+            cd homebrew-tap
+            
+            # Create Formula directory if it doesn't exist
+            mkdir -p Formula
+            
+            # Copy updated formula
+            cp ../tkube.rb Formula/tkube.rb
+            
+            # Commit and push
+            git config --local user.email "action@github.com"
+            git config --local user.name "GitHub Action"
+            
+            if git diff --quiet Formula/tkube.rb; then
+              echo "No changes to commit in tap repository"
+            else
+              git add Formula/tkube.rb
+              git commit -m "Update tkube to ${VERSION}"
+              git push
+              echo "Homebrew tap updated successfully"
+            fi
+          else
+            echo "Homebrew tap repository not found: ${HOMEBREW_TAP_REPO}"
+            echo "Create it manually or the formula will only be updated in the main repository"
+          fi
