@@ -104,7 +104,7 @@ jobs:
           LDFLAGS="-s -w -X main.version=${VERSION_CLEAN}"
 
           echo ">> Building ${OUT} for $GOOS/$GOARCH (version: ${VERSION_CLEAN})"
-          go build -trimpath -ldflags "$LDFLAGS" -o "dist/${OUT}"
+          go build -trimpath -ldflags "$LDFLAGS" -o "dist/${OUT}" ./cmd/tkube
 
           # Verify binary was created
           if [ ! -f "dist/${OUT}" ]; then
