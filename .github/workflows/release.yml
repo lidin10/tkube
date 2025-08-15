@@ -204,7 +204,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN || secrets.GITHUB_TOKEN }}
           ref: main
           fetch-depth: 0
 
@@ -265,11 +265,12 @@ jobs:
           VERSION: v${{ needs.release.outputs.new_release_version }}
           HOMEBREW_TAP_REPO: ${{ github.repository_owner }}/homebrew-tap
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           echo "🍺 Updating Homebrew tap repository..."
           
           # Check if homebrew-tap repository exists
-          if ! curl -s -f -H "Authorization: token ${GITHUB_TOKEN}" \
+          if ! curl -s -f -H "Authorization: token ${HOMEBREW_TAP_TOKEN:-$GITHUB_TOKEN}" \
              "https://api.github.com/repos/${HOMEBREW_TAP_REPO}" > /dev/null; then
             echo "⚠️  Homebrew tap repository not found: ${HOMEBREW_TAP_REPO}"
             echo ""
@@ -288,7 +289,7 @@ jobs:
           
           # Clone the tap repository
           echo "📥 Cloning tap repository..."
-          git clone "https://x-access-token:${GITHUB_TOKEN}@github.com/${HOMEBREW_TAP_REPO}.git" homebrew-tap
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/${HOMEBREW_TAP_REPO}.git" homebrew-tap
           cd homebrew-tap
           
           # Configure git
