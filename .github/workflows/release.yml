@@ -332,3 +332,7 @@ jobs:
             # Commit and push
             git add Formula/tkube.rb
             git commit -m "Update tkube to ${VERSION} - automated release update"
+            git push origin main
+            
+            echo "✅ Homebrew tap updated successfully!"
+          fi
