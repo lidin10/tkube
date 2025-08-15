@@ -283,15 +283,21 @@ jobs:
           cd homebrew-tap
           
           # Configure git
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
+          git config --global user.email "action@github.com"
+          git config --global user.name "GitHub Action"
           
           # Create Formula directory if it doesn't exist
           mkdir -p Formula
           
           # Copy updated formula
           echo "📋 Copying updated formula to tap repository..."
+          if [ ! -f "../tkube.rb" ]; then
+            echo "❌ Formula file not found: ../tkube.rb"
+            ls -la ../ | head -10
+            exit 1
+          fi
           cp ../tkube.rb Formula/tkube.rb
+          echo "✅ Formula copied successfully"
           
           # Verify the formula has the correct version
           echo "🔍 Verifying formula update..."
@@ -316,3 +322,12 @@ jobs:
             # Commit and push
             git add Formula/tkube.rb
             git commit -m "Update tkube to ${VERSION}
+
+Automated update from main repository release.
+
+Changes:
+- Updated source URL to ${VERSION}
+- Updated SHA256 checksum
+- Version: ${VERSION}
+
+This update was triggered by a new release in the main tkube repository."
