@@ -14,7 +14,7 @@ jobs:
     name: Semantic Release
     runs-on: ubuntu-latest
     outputs:
-      new_release_published: ${{ steps.semantic.outputs.new_release_published }}
+      new_release_published: ${{ steps.semantic.outputs.new_release_published || 'false' }}
       new_release_version: ${{ steps.semantic.outputs.new_release_version }}
     steps:
       - name: Checkout
@@ -34,9 +34,25 @@ jobs:
             semantic-release \
             @semantic-release/github
 
+      - name: Check if release needed
+        id: check
+        run: |
+          if npx semantic-release --dry-run | grep -q "Published release"; then
+            echo "release_needed=true" >> $GITHUB_OUTPUT
+          else
+            echo "release_needed=false" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Semantic Release
         id: semantic
-        run: npx semantic-release
+        if: steps.check.outputs.release_needed == 'true'
+        run: |
+          npx semantic-release
+          echo "new_release_published=true" >> $GITHUB_OUTPUT
+          # Get the latest tag as version
+          echo "new_release_version=$(git describe --tags --abbrev=0 | sed 's/^v//')" >> $GITHUB_OUTPUT
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
