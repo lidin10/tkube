@@ -222,10 +222,19 @@ jobs:
           VERSION_CLEAN=${VERSION#v}
           
           # Get SHA256 for macOS ARM64 binary (the recommended one for Homebrew)
+          echo "🔍 Searching for darwin_arm64 in checksums..."
+          grep "_darwin_arm64.tar.gz" checksums/checksums.txt || echo "No darwin_arm64 found"
           MACOS_ARM64_SHA=$(grep "_darwin_arm64.tar.gz" checksums/checksums.txt | awk '{print $1}')
           
           echo "📋 Creating Homebrew formula for version ${VERSION_CLEAN}"
           echo "🔐 SHA256: ${MACOS_ARM64_SHA}"
+          
+          if [ -z "$MACOS_ARM64_SHA" ]; then
+            echo "❌ Could not extract SHA256 for darwin_arm64"
+            echo "Checksums file content:"
+            cat checksums/checksums.txt
+            exit 1
+          fi
           
           # Create the formula
           cat > tkube.rb << EOF
@@ -301,10 +310,11 @@ jobs:
           
           # Verify the formula has the correct version
           echo "🔍 Verifying formula update..."
-          if ! grep -q "${VERSION}" Formula/tkube.rb; then
-            echo "❌ Formula doesn't contain version ${VERSION}"
+          VERSION_CLEAN=${VERSION#v}
+          if ! grep -q "${VERSION_CLEAN}" Formula/tkube.rb; then
+            echo "❌ Formula doesn't contain version ${VERSION_CLEAN}"
             echo "Formula content:"
-            cat Formula/tkube.rb | grep -A1 -B1 "url\|sha256"
+            cat Formula/tkube.rb | grep -A1 -B1 "url\|sha256\|version"
             exit 1
           fi
           
