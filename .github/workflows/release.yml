@@ -321,16 +321,4 @@ jobs:
             
             # Commit and push
             git add Formula/tkube.rb
-            cat > commit_message.txt << EOF
-Update tkube to ${VERSION}
-
-Automated update from main repository release.
-
-Changes:
-- Updated source URL to ${VERSION}
-- Updated SHA256 checksum
-- Version: ${VERSION}
-
-This update was triggered by a new release in the main tkube repository.
-EOF
-            git commit -F commit_message.txt
+            git commit -m "Update tkube to ${VERSION} - automated release update"
