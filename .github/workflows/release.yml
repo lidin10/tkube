@@ -2,17 +2,43 @@ name: Release
 
 on:
   push:
-    tags:
-      - "v*.*.*"
+    branches:
+      - main
 
 permissions:
   contents: write
   actions: read
 
 jobs:
+  release:
+    name: Semantic Release
+    runs-on: ubuntu-latest
+    outputs:
+      new_release_published: ${{ steps.semantic.outputs.new_release_published }}
+      new_release_version: ${{ steps.semantic.outputs.new_release_version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Semantic Release
+        id: semantic
+        run: npx semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   build:
     name: Build ${{ matrix.goos }}-${{ matrix.goarch }}
     runs-on: ubuntu-latest
+    needs: release
+    if: needs.release.outputs.new_release_published == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -21,7 +47,7 @@ jobs:
 
     env:
       CGO_ENABLED: "0"
-      VERSION: ${{ github.ref_name }}
+      VERSION: v${{ needs.release.outputs.new_release_version }}
       BIN: tkube
 
     steps:
@@ -95,7 +121,8 @@ jobs:
 
   checksums:
     name: Checksums
-    needs: build
+    needs: [release, build]
+    if: needs.release.outputs.new_release_published == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Download artifacts
@@ -119,9 +146,10 @@ jobs:
           name: checksums
           path: dist/checksums.txt
 
-  release:
-    name: Publish Release
-    needs: [build, checksums]
+  publish:
+    name: Publish Release Assets
+    needs: [release, build, checksums]
+    if: needs.release.outputs.new_release_published == 'true'
     runs-on: ubuntu-latest
     outputs:
       release_created: ${{ steps.release.outputs.id }}
@@ -136,24 +164,20 @@ jobs:
           echo "Artifacts:"
           find dist -type f -maxdepth 3 -print
 
-      - name: Create GitHub Release
-        id: release
+      - name: Upload Release Assets
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
-          draft: false
-          prerelease: false
+          tag_name: v${{ needs.release.outputs.new_release_version }}
           files: |
             dist/**/*.tar.gz
             dist/**/*.zip
             dist/checksums/checksums.txt
 
   update-formula:
-    name: Update Homebrew Formula
-    needs: release
+    name: Update Homebrew-tap Formula
+    needs: [release, checksums, publish]
     runs-on: ubuntu-latest
-    if: needs.release.outputs.release_created
+    if: needs.release.outputs.new_release_published == 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -162,124 +186,136 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: Update Homebrew Formula
-        env:
-          VERSION: ${{ github.ref_name }}
-        run: |
-          # Calculate SHA256 of source archive
-          ARCHIVE_URL="https://github.com/${{ github.repository }}/archive/${VERSION}.tar.gz"
-          echo "📥 Downloading source archive: $ARCHIVE_URL"
-          
-          # Download and calculate SHA256 with error handling
-          if ! curl -sL "$ARCHIVE_URL" | sha256sum | cut -d' ' -f1 > sha256.txt; then
-            echo "❌ Failed to download or calculate SHA256"
-            exit 1
-          fi
-          
-          SHA256=$(cat sha256.txt)
-          if [ ${#SHA256} -ne 64 ]; then
-            echo "❌ Invalid SHA256 length: ${#SHA256} (expected 64)"
-            echo "SHA256: $SHA256"
-            exit 1
-          fi
-          
-          echo "🔐 Calculated SHA256: $SHA256"
-          
-          # Backup original formula
-          cp tkube.rb tkube.rb.backup
-          
-          # Update the formula
-          sed -i "s|url \".*\"|url \"$ARCHIVE_URL\"|" tkube.rb
-          sed -i "s|sha256 \".*\"|sha256 \"$SHA256\"|" tkube.rb
-          
-          echo "📝 Updated tkube.rb:"
-          echo "---"
-          grep -A1 -B1 "url\|sha256" tkube.rb
-          echo "---"
-          
-          # Verify the update worked
-          if ! grep -q "$ARCHIVE_URL" tkube.rb; then
-            echo "❌ URL update failed"
-            exit 1
-          fi
-          
-          if ! grep -q "$SHA256" tkube.rb; then
-            echo "❌ SHA256 update failed"
-            exit 1
-          fi
-          
-          echo "✅ Formula updated successfully"
+      - name: Download checksums
+        uses: actions/download-artifact@v4
+        with:
+          name: checksums
+          path: checksums
 
-      - name: Commit Formula Update
+      - name: Generate Homebrew Formula
         env:
-          VERSION: ${{ github.ref_name }}
+          VERSION: v${{ needs.release.outputs.new_release_version }}
         run: |
+          # Extract version without 'v' prefix
+          VERSION_CLEAN=${VERSION#v}
+          
+          # Get SHA256 for macOS ARM64 binary (the recommended one for Homebrew)
+          MACOS_ARM64_SHA=$(grep "_darwin_arm64.tar.gz" checksums/checksums.txt | cut -d' ' -f1)
+          
+          echo "📋 Creating Homebrew formula for version ${VERSION_CLEAN}"
+          echo "🔐 SHA256: ${MACOS_ARM64_SHA}"
+          
+          # Create the formula
+          cat > tkube.rb << EOF
+          class Tkube < Formula
+            desc "Enhanced Teleport kubectl wrapper with auto-authentication"
+            homepage "https://github.com/${{ github.repository }}"
+            url "https://github.com/${{ github.repository }}/releases/download/${VERSION}/tkube_${VERSION}_darwin_arm64.tar.gz"
+            sha256 "${MACOS_ARM64_SHA}"
+            license "MIT"
+            version "${VERSION_CLEAN}"
+          
+            depends_on "kubernetes-cli"
+          
+            def install
+              bin.install "tkube"
+            end
+          
+            test do
+              system "#{bin}/tkube", "version"
+            end
+          end
+          EOF
+          
+          echo "✅ Formula created successfully"
+
+      - name: Update Homebrew Tap Repository
+        env:
+          VERSION: v${{ needs.release.outputs.new_release_version }}
+          HOMEBREW_TAP_REPO: ${{ github.repository_owner }}/homebrew-tap
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "🍺 Updating Homebrew tap repository..."
+          
+          # Check if homebrew-tap repository exists
+          if ! curl -s -f -H "Authorization: token ${GITHUB_TOKEN}" \
+             "https://api.github.com/repos/${HOMEBREW_TAP_REPO}" > /dev/null; then
+            echo "⚠️  Homebrew tap repository not found: ${HOMEBREW_TAP_REPO}"
+            echo ""
+            echo "💡 To create a Homebrew tap:"
+            echo "   1. Create repository: ${HOMEBREW_TAP_REPO}"
+            echo "   2. Make it public"
+            echo "   3. The workflow will automatically populate it"
+            echo ""
+            echo "🔧 Quick setup:"
+            echo "   gh repo create ${HOMEBREW_TAP_REPO} --public"
+            echo "   # Then re-run this workflow"
+            exit 0
+          fi
+          
+          echo "✅ Homebrew tap repository found: ${HOMEBREW_TAP_REPO}"
+          
+          # Clone the tap repository
+          echo "📥 Cloning tap repository..."
+          git clone "https://x-access-token:${GITHUB_TOKEN}@github.com/${HOMEBREW_TAP_REPO}.git" homebrew-tap
+          cd homebrew-tap
+          
           # Configure git
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           
-          # Check current git state
-          echo "📍 Current branch: $(git branch --show-current 2>/dev/null || echo 'detached HEAD')"
-          echo "📍 Current commit: $(git rev-parse --short HEAD)"
+          # Create Formula directory if it doesn't exist
+          mkdir -p Formula
           
-          # Ensure we're on main branch
-          if ! git branch --show-current >/dev/null 2>&1; then
-            echo "🔄 In detached HEAD, checking out main branch..."
-            git checkout main
-          elif [ "$(git branch --show-current)" != "main" ]; then
-            echo "🔄 Switching to main branch..."
-            git checkout main
-          else
-            echo "✅ Already on main branch"
+          # Copy updated formula
+          echo "📋 Copying updated formula to tap repository..."
+          cp ../tkube.rb Formula/tkube.rb
+          
+          # Verify the formula has the correct version
+          echo "🔍 Verifying formula update..."
+          if ! grep -q "${VERSION}" Formula/tkube.rb; then
+            echo "❌ Formula doesn't contain version ${VERSION}"
+            echo "Formula content:"
+            cat Formula/tkube.rb | grep -A1 -B1 "url\|sha256"
+            exit 1
           fi
           
-          if git diff --quiet tkube.rb; then
-            echo "No changes to commit"
+          # Check if there are changes to commit
+          if git diff --quiet Formula/tkube.rb 2>/dev/null; then
+            echo "ℹ️  No changes detected in tap repository"
+            echo "   Formula is already up to date with ${VERSION}"
           else
-            git add tkube.rb
-            git commit -m "Update Homebrew formula to ${VERSION}
-
-            - Updated URL to ${VERSION} source archive
-            - Updated SHA256 checksum
-            - Automated update via release workflow"
-            git push origin main
-            echo "Formula updated and committed to main branch"
-          fi
-
-      - name: Update Homebrew Tap (if exists)
-        env:
-          VERSION: ${{ github.ref_name }}
-          HOMEBREW_TAP_REPO: ${{ github.repository_owner }}/homebrew-tap
-        run: |
-          # Check if homebrew-tap repository exists
-          if curl -s -f -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-             "https://api.github.com/repos/${HOMEBREW_TAP_REPO}" > /dev/null; then
+            echo "📝 Changes detected, committing update..."
             
-            echo "Homebrew tap repository found: ${HOMEBREW_TAP_REPO}"
-            
-            # Clone the tap repository
-            git clone "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${HOMEBREW_TAP_REPO}.git" homebrew-tap
-            cd homebrew-tap
-            
-            # Create Formula directory if it doesn't exist
-            mkdir -p Formula
-            
-            # Copy updated formula
-            cp ../tkube.rb Formula/tkube.rb
+            # Show what changed
+            echo "Changes being made:"
+            git diff Formula/tkube.rb || true
             
             # Commit and push
-            git config --local user.email "action@github.com"
-            git config --local user.name "GitHub Action"
+            git add Formula/tkube.rb
+            git commit -m "Update tkube to ${VERSION}
+
+Automated update from main repository release.
+
+Changes:
+- Updated source URL to ${VERSION}
+- Updated SHA256 checksum
+- Version: ${VERSION}
+
+This update was triggered by a new release in the main tkube repository."
             
-            if git diff --quiet Formula/tkube.rb; then
-              echo "No changes to commit in tap repository"
-            else
-              git add Formula/tkube.rb
-              git commit -m "Update tkube to ${VERSION}"
-              git push
-              echo "Homebrew tap updated successfully"
-            fi
-          else
-            echo "Homebrew tap repository not found: ${HOMEBREW_TAP_REPO}"
-            echo "Create it manually or the formula will only be updated in the main repository"
+            echo "🚀 Pushing changes to tap repository..."
+            git push origin main
+            
+            echo "✅ Homebrew tap updated successfully!"
+            echo "🍺 Users can now install with: brew upgrade tkube"
           fi
+          
+          cd ..
+          
+          echo ""
+          echo "📋 Update Summary:"
+          echo "   • Main repository formula: ✅ Updated"
+          echo "   • Homebrew tap repository: ✅ Updated"
+          echo "   • Version: ${VERSION}"
+          echo "   • Ready for installation: brew install ${{ github.repository_owner }}/tap/tkube"
