@@ -294,28 +294,3 @@ jobs:
             # Commit and push
             git add Formula/tkube.rb
             git commit -m "Update tkube to ${VERSION}
-
-Automated update from main repository release.
-
-Changes:
-- Updated source URL to ${VERSION}
-- Updated SHA256 checksum
-- Version: ${VERSION}
-
-This update was triggered by a new release in the main tkube repository."
-            
-            echo "🚀 Pushing changes to tap repository..."
-            git push origin main
-            
-            echo "✅ Homebrew tap updated successfully!"
-            echo "🍺 Users can now install with: brew upgrade tkube"
-          fi
-          
-          cd ..
-          
-          echo ""
-          echo "📋 Update Summary:"
-          echo "   • Main repository formula: ✅ Updated"
-          echo "   • Homebrew tap repository: ✅ Updated"
-          echo "   • Version: ${VERSION}"
-          echo "   • Ready for installation: brew install ${{ github.repository_owner }}/tap/tkube"
