@@ -1,5 +1,10 @@
 # tkube
 
+[![Go Report Card](https://goreportcard.com/badge/github.com/lidin10/tkube)](https://goreportcard.com/report/github.com/lidin10/tkube)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Release](https://img.shields.io/github/release/lidin10/tkube.svg)](https://github.com/lidin10/tkube/releases)
+[![Coverage](https://img.shields.io/badge/Coverage-61.4%25-orange.svg)](https://github.com/lidin10/tkube)
+
 🚀 Enhanced Teleport kubectl wrapper with auto-authentication
 
 A Go binary for quickly logging into Kubernetes clusters via Teleport with intelligent configuration and cross-shell compatibility.
@@ -77,7 +82,6 @@ tkube completion fish   # for fish
 # Manage tsh versions (now at root level)
 tkube tsh-versions           # List installed tsh versions
 tkube install-tsh 17.7.1     # Install specific tsh version
-tkube auto-detect-versions   # Auto-detect versions for all environments
 
 # Configuration management
 tkube config show            # Show current configuration
@@ -92,34 +96,12 @@ Configuration is stored in `~/.tkube/config.json`:
 ```json
 {
   "environments": {
-    "prod": "teleport.prod.company.com:443",
-    "test": "teleport.test.company.com:443"
+    "prod": "teleport.prod.env:443",
+    "test": "teleport.test.env:443"
   },
   "auto_login": true
 }
 ```
-
-### Advanced Configuration with tsh Versions
-```json
-{
-  "environments": {
-    "prod": {
-      "proxy": "teleport.prod.company.com:443",
-      "tsh_version": "17.7.1"
-    },
-    "test": {
-      "proxy": "teleport.test.company.com:443",
-      "tsh_version": "16.4.0"
-    },
-    "dev": {
-      "proxy": "teleport.dev.company.com:443"
-    }
-  },
-  "auto_login": true
-}
-```
-
-**Note:** When `tsh_version` is specified, tkube will use that specific version for the environment.
 
 The configuration file is automatically created with example values on first run.
 

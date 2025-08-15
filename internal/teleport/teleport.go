@@ -22,7 +22,7 @@ func NewClient(configManager *config.Manager) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tsh installer: %w", err)
 	}
-	
+
 	return &Client{
 		configManager: configManager,
 		installer:     installer,
@@ -121,7 +121,7 @@ func (c *Client) GetSessionInfo(env, proxy string) *SessionInfo {
 	}
 
 	outputStr := string(output)
-	
+
 	// Check if authenticated
 	if !strings.Contains(outputStr, "logged in") && !strings.Contains(outputStr, "Valid until") {
 		return info
@@ -138,7 +138,7 @@ func (c *Client) GetSessionInfo(env, proxy string) *SessionInfo {
 			parts := strings.Split(line, "Valid until:")
 			if len(parts) > 1 {
 				timeInfo := strings.TrimSpace(parts[1])
-				
+
 				// Check if expired
 				if strings.Contains(timeInfo, "EXPIRED") {
 					info.IsExpired = true
@@ -153,7 +153,7 @@ func (c *Client) GetSessionInfo(env, proxy string) *SessionInfo {
 							info.TimeRemaining = timeInfo[start:end]
 						}
 					}
-					
+
 					// Extract the actual expiry time (before the bracket)
 					if bracketIndex := strings.Index(timeInfo, " ["); bracketIndex > 0 {
 						info.ValidUntil = strings.TrimSpace(timeInfo[:bracketIndex])
@@ -286,10 +286,22 @@ func (c *Client) GetClustersForCompletion(env string) ([]string, error) {
 		return []string{"❌ Environment '" + env + "' not found"}, nil
 	}
 
-	// Check if tsh version is configured
+	// Check if tsh version is configured, auto-detect if not
 	requiredVersion := c.getRequiredTSHVersion(env)
 	if requiredVersion == "" {
-		return []string{"⚠️  No tsh version configured - run: tkube config auto-detect-versions"}, nil
+		// Try to auto-detect version
+		detector := NewVersionDetector()
+		version, err := detector.DetectTSHVersion(envConfig.Proxy)
+		if err != nil {
+			return []string{"⚠️  No tsh version configured and auto-detection failed"}, nil
+		}
+
+		// Update config with detected version
+		if err := c.configManager.UpdateEnvironmentTSHVersion(env, version); err != nil {
+			return []string{"⚠️  Auto-detected version but failed to save config"}, nil
+		}
+
+		requiredVersion = version
 	}
 
 	// Check if tsh is installed - don't auto-install for completion
@@ -425,12 +437,12 @@ func (c *Client) EnsureTSHVersion(env string) error {
 		if err != nil {
 			return fmt.Errorf("no tsh version configured for environment '%s' and auto-detection failed: %w", env, err)
 		}
-		
+
 		// Update config with detected version
 		if err := c.configManager.UpdateEnvironmentTSHVersion(env, version); err != nil {
 			return fmt.Errorf("failed to update config with detected version: %w", err)
 		}
-		
+
 		envConfig.TSHVersion = version
 
 	}

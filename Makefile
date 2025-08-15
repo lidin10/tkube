@@ -1,9 +1,9 @@
-.PHONY: build clean test install
+.PHONY: build clean test coverage test-verbose test-run test-race test-pkg install fmt lint check help
 
 # Build variables
 BINARY_NAME=tkube
 BUILD_DIR=build
-VERSION?=1.1.0
+VERSION?=1.2.0
 
 # Build the application
 build:
@@ -38,13 +38,33 @@ install: build
 # Run tests
 test:
 	@echo "🧪 Running tests..."
-	go test ./...
+	go test ./internal/...
 
 # Run tests with coverage
-test-coverage:
+coverage:
 	@echo "🧪 Running tests with coverage..."
-	go test -coverprofile=coverage.out ./...
-	go tool cover -html=coverage.out
+	go test -coverprofile=coverage.out ./internal/...
+	@go tool cover -func=coverage.out | grep total | awk '{print "Coverage: " $$3}'
+
+# Run tests with verbose output
+test-verbose:
+	@echo "🧪 Running tests with verbose output..."
+	go test -v ./internal/...
+
+# Run specific test
+test-run:
+	@echo "🧪 Running specific test pattern..."
+	go test -run $(TEST) ./internal/...
+
+# Run tests with race detection
+test-race:
+	@echo "🧪 Running tests with race detection..."
+	go test -race ./internal/...
+
+# Run tests for a specific package
+test-pkg:
+	@echo "🧪 Running tests for package $(PKG)..."
+	go test ./internal/$(PKG)/...
 
 # Clean build artifacts
 clean:
@@ -72,7 +92,11 @@ help:
 	@echo "  build-all      - Build for multiple platforms"
 	@echo "  install        - Install locally"
 	@echo "  test           - Run tests"
-	@echo "  test-coverage  - Run tests with coverage"
+	@echo "  coverage       - Run tests with coverage percentage"
+	@echo "  test-verbose   - Run tests with verbose output"
+	@echo "  test-run       - Run specific test pattern (TEST=pattern)"
+	@echo "  test-race      - Run tests with race detection"
+	@echo "  test-pkg       - Run tests for specific package (PKG=package)"
 	@echo "  clean          - Clean build artifacts"
 	@echo "  fmt            - Format code"
 	@echo "  lint           - Lint code"

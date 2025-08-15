@@ -539,7 +539,7 @@ func (installer *TSHInstaller) IsVersionInstalled(version string) bool {
 
 // verifyTSHBinary verifies that the tsh binary is working
 func (installer *TSHInstaller) verifyTSHBinary(tshPath string) bool {
-	// Simple check - try to run tsh version
+	// Check if file exists
 	if _, err := os.Stat(tshPath); err != nil {
 		return false
 	}
@@ -551,7 +551,14 @@ func (installer *TSHInstaller) verifyTSHBinary(tshPath string) bool {
 	}
 
 	mode := info.Mode()
-	return mode&0111 != 0 // Check if any execute bit is set
+	if mode&0111 == 0 {
+		return false // Not executable
+	}
+
+	// Try to run tsh version to verify it actually works
+	cmd := exec.Command(tshPath, "version", "--client")
+	err = cmd.Run()
+	return err == nil
 }
 
 // GetInstalledVersions returns a list of installed tsh versions

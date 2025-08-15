@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 	"tkube/internal/config"
 	"tkube/internal/kubectl"
 	"tkube/internal/teleport"
@@ -71,16 +72,24 @@ func (h *Handler) ConnectToCluster(env, cluster string) error {
 	// Check if required tsh version is installed
 	if envConfig.TSHVersion != "" {
 		if !h.installer.IsVersionInstalled(envConfig.TSHVersion) {
-			fmt.Printf("📦 Installing tsh v%s...\n", envConfig.TSHVersion)
+			fmt.Printf("📦 tsh v%s not installed - installing...\n", envConfig.TSHVersion)
 
 			// Ask user if they want to install automatically
 			if h.promptForInstallation(envConfig.TSHVersion) {
-				if err := h.installer.AutoInstallForEnvironment(env, envConfig.TSHVersion); err != nil {
+				if err := h.installer.InstallTSH(envConfig.TSHVersion); err != nil {
 					fmt.Printf("❌ Installation failed: %v\n", err)
 					fmt.Printf("💡 Try: tkube install-tsh %s\n", envConfig.TSHVersion)
 					return fmt.Errorf("installation failed")
 				}
 				fmt.Printf("✅ tsh v%s installed\n", envConfig.TSHVersion)
+
+				// Give filesystem time to sync and verify installation
+				time.Sleep(100 * time.Millisecond)
+				if !h.installer.IsVersionInstalled(envConfig.TSHVersion) {
+					fmt.Printf("⚠️  Installation completed but verification failed\n")
+					fmt.Printf("💡 Try running the command again\n")
+					return fmt.Errorf("installation verification failed")
+				}
 			} else {
 				fmt.Printf("💡 Run: tkube install-tsh %s\n", envConfig.TSHVersion)
 				return fmt.Errorf("required tsh version %s not installed", envConfig.TSHVersion)
@@ -206,7 +215,6 @@ func (h *Handler) ShowVersion() {
 	fmt.Println("🔧 tsh version management:")
 	fmt.Println("   tkube tsh-versions        # List installed tsh versions")
 	fmt.Println("   tkube install-tsh         # Install specific tsh version")
-	fmt.Println("   tkube auto-detect-versions # Auto-detect tsh versions for environments")
 }
 
 // ShowStatus displays environment status
@@ -249,14 +257,14 @@ func (h *Handler) ShowStatus() {
 
 	for env, envConfig := range config.Environments {
 		sessionInfo := h.teleportClient.GetSessionInfo(env, envConfig.Proxy)
-		
+
 		if sessionInfo.IsAuthenticated {
 			if sessionInfo.IsExpired {
 				fmt.Printf("  \033[33m⏰ %s → %s (expired)\033[0m\n", env, envConfig.Proxy)
 			} else if sessionInfo.TimeRemaining != "" {
 				// Format time remaining for better readability
 				timeStr := h.formatTimeRemaining(sessionInfo.TimeRemaining)
-				
+
 				// Color code based on time remaining
 				var color string
 				if !strings.Contains(timeStr, "h") {
@@ -269,7 +277,7 @@ func (h *Handler) ShowStatus() {
 					// More than 2 hours - green
 					color = "\033[32m✅"
 				}
-				
+
 				fmt.Printf("  %s %s → %s (%s left)\033[0m\n", color, env, envConfig.Proxy, timeStr)
 			} else {
 				fmt.Printf("  \033[32m✅ %s → %s (authenticated)\033[0m\n", env, envConfig.Proxy)
@@ -349,7 +357,23 @@ func (h *Handler) ShowConfigPath() {
 
 // InstallTSH installs a specific tsh version
 func (h *Handler) InstallTSH(version string) error {
-	return h.installer.InstallTSH(version)
+	// Check if version is already installed
+	if h.installer.IsVersionInstalled(version) {
+		fmt.Printf("✅ tsh v%s is already installed\n", version)
+		fmt.Println("💡 Use 'tkube tsh-versions' to see all installed versions")
+		return nil
+	}
+
+	fmt.Printf("📦 Installing tsh v%s...\n", version)
+
+	if err := h.installer.InstallTSH(version); err != nil {
+		fmt.Printf("❌ Installation failed: %v\n", err)
+		return err
+	}
+
+	fmt.Printf("✅ tsh v%s installed successfully\n", version)
+	fmt.Println("💡 Use 'tkube tsh-versions' to see all installed versions")
+	return nil
 }
 
 // AutoInstallTSH automatically installs a specific tsh version
@@ -402,8 +426,27 @@ func (h *Handler) ShowTSHVersions() {
 		for _, version := range versions {
 			tshPath := filepath.Join(tshBaseDir, version, "tsh")
 			if h.installer.IsVersionInstalled(version) {
-				versionInfo := h.installer.GetTSHVersionInfo(tshPath)
-				fmt.Printf("   ✅ %s: %s\n", version, versionInfo)
+				// Get just the version number from the binary, not the full git info
+				cmd := exec.Command(tshPath, "version", "--client")
+				output, err := cmd.Output()
+				var versionStr string
+				if err == nil {
+					lines := strings.Split(string(output), "\n")
+					if len(lines) > 0 && strings.TrimSpace(lines[0]) != "" {
+						// Extract just "Teleport vX.Y.Z" part
+						fullVersion := strings.TrimSpace(lines[0])
+						if strings.Contains(fullVersion, " git:") {
+							versionStr = strings.Split(fullVersion, " git:")[0]
+						} else {
+							versionStr = fullVersion
+						}
+					} else {
+						versionStr = "Teleport v" + version
+					}
+				} else {
+					versionStr = "Teleport v" + version
+				}
+				fmt.Printf("   ✅ %s (%s)\n", versionStr, tshPath)
 			} else {
 				fmt.Printf("   ⚠️  %s: placeholder (not fully installed)\n", version)
 			}
@@ -509,12 +552,43 @@ func (h *Handler) formatTimeRemaining(timeStr string) string {
 			}
 		}
 	}
-	
+
 	// For very short times (less than 1 hour), show a warning color
 	if !strings.Contains(timeStr, "h") {
 		// This is less than an hour, could be just minutes
 		return timeStr
 	}
-	
+
 	return timeStr
+}
+// AddEnvironmentInteractive adds a new environment interactively
+func (h *Handler) AddEnvironmentInteractive() error {
+	// TODO: Implement interactive environment management
+	fmt.Println("❌ Interactive environment management not yet implemented")
+	fmt.Println("💡 Please edit your config file manually: tkube config path")
+	return fmt.Errorf("interactive management not implemented")
+}
+
+// EditEnvironmentInteractive edits an existing environment interactively
+func (h *Handler) EditEnvironmentInteractive(name string) error {
+	// TODO: Implement interactive environment management
+	fmt.Println("❌ Interactive environment management not yet implemented")
+	fmt.Println("💡 Please edit your config file manually: tkube config path")
+	return fmt.Errorf("interactive management not implemented")
+}
+
+// RemoveEnvironmentInteractive removes an environment interactively
+func (h *Handler) RemoveEnvironmentInteractive(name string) error {
+	// TODO: Implement interactive environment management
+	fmt.Println("❌ Interactive environment management not yet implemented")
+	fmt.Println("💡 Please edit your config file manually: tkube config path")
+	return fmt.Errorf("interactive management not implemented")
+}
+
+// ValidateConfiguration validates the current configuration
+func (h *Handler) ValidateConfiguration() error {
+	// TODO: Implement configuration validation
+	fmt.Println("❌ Configuration validation not yet implemented")
+	fmt.Println("💡 Please check your config file manually: tkube config show")
+	return fmt.Errorf("validation not implemented")
 }
