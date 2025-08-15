@@ -222,7 +222,7 @@ jobs:
           VERSION_CLEAN=${VERSION#v}
           
           # Get SHA256 for macOS ARM64 binary (the recommended one for Homebrew)
-          MACOS_ARM64_SHA=$(grep "_darwin_arm64.tar.gz" checksums/checksums.txt | cut -d' ' -f1)
+          MACOS_ARM64_SHA=$(grep "_darwin_arm64.tar.gz" checksums/checksums.txt | awk '{print $1}')
           
           echo "📋 Creating Homebrew formula for version ${VERSION_CLEAN}"
           echo "🔐 SHA256: ${MACOS_ARM64_SHA}"
