@@ -136,7 +136,7 @@ and optional dependencies like tsh (Teleport CLI) and kubectl.
 This command helps verify your installation and troubleshoot any 
 missing dependencies.`,
 		Run: func(cmd *cobra.Command, args []string) {
-			commandHandler.ShowVersion()
+			commandHandler.ShowVersion(version)
 		},
 	}
 

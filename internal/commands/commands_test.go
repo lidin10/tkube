@@ -45,7 +45,7 @@ func TestHandler_ShowVersion(t *testing.T) {
 	handler := NewHandler(configManager, teleportClient, kubectlClient, installer)
 	
 	// This should not panic or error
-	handler.ShowVersion()
+	handler.ShowVersion("test-version")
 }
 
 func TestHandler_ShowConfigPath(t *testing.T) {

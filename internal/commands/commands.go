@@ -126,8 +126,8 @@ func (h *Handler) ConnectToCluster(env, cluster string) error {
 }
 
 // ShowVersion displays version information
-func (h *Handler) ShowVersion() {
-	fmt.Printf("🚀 tkube version %s\n", "1.1.0") // TODO: Get from build info
+func (h *Handler) ShowVersion(version string) {
+	fmt.Printf("🚀 tkube version %s\n", version)
 	fmt.Println("Enhanced Teleport kubectl wrapper with auto-authentication")
 	fmt.Println()
 
