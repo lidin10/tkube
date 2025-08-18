@@ -2,6 +2,7 @@ package teleport
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -35,13 +36,13 @@ func TestVersionDetector_DetectTSHVersion(t *testing.T) {
 		},
 		{
 			name:          "Proxy with version in hostname",
-			proxy:         "teleport-v14.prod.company.com:443",
+			proxy:         "teleport-v14.example.local:443",
 			expectError:   false,
 			expectVersion: true,
 		},
 		{
-			name:          "Proxy with version pattern",
-			proxy:         "teleport14.test.company.com:443",
+			name:          "Proxy with version pattern", 
+			proxy:         "teleport14.example.local:443",
 			expectError:   false,
 			expectVersion: true,
 		},
@@ -49,6 +50,13 @@ func TestVersionDetector_DetectTSHVersion(t *testing.T) {
 	
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Skip network-dependent tests in CI
+			if os.Getenv("CI") == "true" && (tt.proxy == "invalid-proxy-that-does-not-exist:443" || 
+				strings.Contains(tt.proxy, "prod.company.com") || 
+				strings.Contains(tt.proxy, "test.company.com")) {
+				t.Skip("Skipping network-dependent test in CI environment")
+			}
+			
 			version, err := detector.DetectTSHVersion(tt.proxy)
 			
 			if tt.expectError && err == nil {
