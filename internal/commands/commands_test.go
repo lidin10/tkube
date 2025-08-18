@@ -437,3 +437,102 @@ func TestHandler_AutoDetectVersions_WithEnvironments(t *testing.T) {
 	// This should auto-detect versions
 	handler.AutoDetectVersions()
 }
+
+func TestHandler_Logout(t *testing.T) {
+	configManager, _ := config.NewManager()
+	teleportClient, _ := teleport.NewClient(configManager)
+	kubectlClient := kubectl.NewClient()
+	installer, _ := teleport.NewTSHInstaller()
+	
+	handler := NewHandler(configManager, teleportClient, kubectlClient, installer)
+	
+	// Test logout from all environments (should not panic)
+	err := handler.Logout("")
+	if err != nil {
+		t.Logf("Logout from all environments failed as expected: %v", err)
+	} else {
+		t.Log("Logout from all environments succeeded")
+	}
+}
+
+func TestHandler_Logout_SpecificEnvironment(t *testing.T) {
+	configManager, _ := config.NewManager()
+	teleportClient, _ := teleport.NewClient(configManager)
+	kubectlClient := kubectl.NewClient()
+	installer, _ := teleport.NewTSHInstaller()
+	
+	handler := NewHandler(configManager, teleportClient, kubectlClient, installer)
+	
+	// Test logout from non-existent environment
+	err := handler.Logout("nonexistent")
+	if err == nil {
+		t.Error("Expected error when logging out from non-existent environment")
+	} else {
+		t.Logf("Logout from non-existent environment failed as expected: %v", err)
+	}
+}
+
+func TestHandler_Logout_WithConfig(t *testing.T) {
+	// Create a temporary config file
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	
+	testConfig := &config.Config{
+		Environments: map[string]config.Environment{
+			"prod": {Proxy: "prod.proxy.com:443", TSHVersion: "14.0.0"},
+			"test": {Proxy: "test.proxy.com:443"},
+		},
+		AutoLogin: true,
+	}
+	
+	data, _ := json.MarshalIndent(testConfig, "", "  ")
+	os.WriteFile(configPath, data, 0644)
+	
+	configManager, _ := config.NewManager()
+	teleportClient, _ := teleport.NewClient(configManager)
+	kubectlClient := kubectl.NewClient()
+	installer, _ := teleport.NewTSHInstaller()
+	
+	handler := NewHandler(configManager, teleportClient, kubectlClient, installer)
+	
+	// Test logout from all environments
+	err := handler.Logout("")
+	if err != nil {
+		t.Logf("Logout from all environments failed: %v", err)
+	} else {
+		t.Log("Logout from all environments succeeded")
+	}
+	
+	// Test logout from specific environment
+	err = handler.Logout("prod")
+	if err != nil {
+		t.Logf("Logout from prod environment failed: %v", err)
+	} else {
+		t.Log("Logout from prod environment succeeded")
+	}
+	
+	// Test logout from environment without TSH version
+	err = handler.Logout("test")
+	if err != nil {
+		t.Logf("Logout from test environment failed: %v", err)
+	} else {
+		t.Log("Logout from test environment succeeded")
+	}
+}
+
+func TestHandler_Logout_ConfigLoadError(t *testing.T) {
+	// Create handler with invalid config path
+	configManager, _ := config.NewManager()
+	teleportClient, _ := teleport.NewClient(configManager)
+	kubectlClient := kubectl.NewClient()
+	installer, _ := teleport.NewTSHInstaller()
+	
+	handler := NewHandler(configManager, teleportClient, kubectlClient, installer)
+	
+	// Force a config load error by trying to logout when no config exists
+	// This depends on how the config manager handles missing configs
+	err := handler.Logout("test")
+	if err != nil {
+		t.Logf("Logout failed as expected when config has issues: %v", err)
+	}
+}

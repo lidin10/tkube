@@ -585,6 +585,49 @@ func (h *Handler) RemoveEnvironmentInteractive(name string) error {
 	return fmt.Errorf("interactive management not implemented")
 }
 
+// Logout logs out from Teleport environments
+func (h *Handler) Logout(env string) error {
+	config, err := h.configManager.Load()
+	if err != nil {
+		fmt.Printf("❌ Error loading configuration: %v\n", err)
+		return err
+	}
+
+	if env == "" {
+		// Logout from all environments
+		fmt.Println("🔓 Logging out from all environments...")
+		
+		for envName, envConfig := range config.Environments {
+			fmt.Printf("🔓 Logging out from %s (%s)...\n", envName, envConfig.Proxy)
+			if err := h.teleportClient.LogoutWithEnv(envName, envConfig.Proxy); err != nil {
+				fmt.Printf("⚠️  Failed to logout from %s: %v\n", envName, err)
+			} else {
+				fmt.Printf("✅ Logged out from %s\n", envName)
+			}
+		}
+		
+		fmt.Println("✅ Logout from all environments completed")
+		return nil
+	}
+
+	// Logout from specific environment
+	envConfig, exists := config.Environments[env]
+	if !exists {
+		fmt.Printf("❌ Unknown environment '%s'\n", env)
+		fmt.Printf("Available environments: %s\n", strings.Join(h.getEnvironments(), ", "))
+		return fmt.Errorf("unknown environment")
+	}
+
+	fmt.Printf("🔓 Logging out from %s (%s)...\n", env, envConfig.Proxy)
+	if err := h.teleportClient.LogoutWithEnv(env, envConfig.Proxy); err != nil {
+		fmt.Printf("❌ Failed to logout from %s: %v\n", env, err)
+		return err
+	}
+
+	fmt.Printf("✅ Logged out from %s\n", env)
+	return nil
+}
+
 // ValidateConfiguration validates the current configuration
 func (h *Handler) ValidateConfiguration() error {
 	// TODO: Implement configuration validation

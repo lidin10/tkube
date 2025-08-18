@@ -74,6 +74,10 @@ tkube help
 # Show version
 tkube version
 
+# Log out from Teleport servers
+tkube logout                 # Log out from all environments
+tkube logout prod            # Log out from specific environment
+
 # Generate shell completion
 tkube completion bash   # for bash
 tkube completion zsh    # for zsh
@@ -96,12 +100,34 @@ Configuration is stored in `~/.tkube/config.json`:
 ```json
 {
   "environments": {
-    "prod": "teleport.prod.env:443",
-    "test": "teleport.test.env:443"
+    "prod": {
+      "proxy": "teleport.prod.env:443",
+      "tsh_version": "16.4.0",
+      "user": "my-prod-username"
+    },
+    "test": {
+      "proxy": "teleport.test.env:443",
+      "tsh_version": "17.7.1"
+    }
   },
-  "auto_login": true
+  "auto_login": true,
+  "default_user": "my-teleport-username"
 }
 ```
+
+### User Configuration
+tkube supports three levels of user configuration for Teleport authentication:
+
+1. **Environment-specific user**: Set `"user": "username"` in environment config
+2. **Default user**: Set `"default_user": "username"` at the top level (applies to all environments without specific user)  
+3. **System user**: Automatically uses your system username as fallback
+
+**Priority**: Environment-specific user > Default user > System user
+
+This is useful when:
+- Your Teleport username differs from your system username
+- You use different usernames for different environments (e.g., different identity providers)
+- You want to explicitly control which user is used for authentication
 
 The configuration file is automatically created with example values on first run.
 
@@ -130,12 +156,23 @@ tkube tsh-versions
 ```
 ~/.tkube/
 ├── config.json
-└── tsh/
+├── sessions/           # Isolated session directories per environment
+│   ├── prod/           # Prod environment sessions  
+│   └── test/           # Test environment sessions
+└── tsh/                # Downloaded tsh binaries
     ├── 16.4.0/
     │   └── tsh
     └── 17.7.1/
         └── tsh
 ```
+
+### Session Isolation
+tkube keeps Teleport sessions completely isolated between environments:
+- Each environment has its own session directory under `~/.tkube/sessions/<env>/`
+- Login to one environment doesn't affect authentication status of others
+- `tkube logout <env>` only affects the specified environment
+- `tkube status` shows real authentication state per environment
+
 
 ## Requirements
 
@@ -200,6 +237,20 @@ tkube auto-detect-versions
 # Install detected versions
 tkube install-tsh 16.4.0
 tkube install-tsh 17.7.1
+
+# Configure different users for environments
+tkube config show           # Check current config
+# Edit ~/.tkube/config.json to add user settings:
+# {
+#   "environments": {
+#     "prod": {
+#       "proxy": "teleport.prod.env:443",
+#       "tsh_version": "16.4.0", 
+#       "user": "prod-username"
+#     }
+#   },
+#   "default_user": "my-teleport-username"
+# }
 
 # Get help
 tkube help

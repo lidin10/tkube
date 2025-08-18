@@ -55,7 +55,15 @@ func (c *Client) IsAuthenticatedWithEnv(env, proxy string) bool {
 		return false
 	}
 
-	cmd := exec.Command(tshPath, "status", "--proxy="+proxy)
+	// Ensure session directory exists
+	if err := c.ensureSessionDir(env); err != nil {
+		fmt.Printf("⚠️  Failed to create session directory for environment %s: %v\n", env, err)
+		return false
+	}
+
+	user := c.getEffectiveUser(env)
+	cmd := exec.Command(tshPath, "status", "--proxy="+proxy, "--user="+user)
+	cmd.Env = append(os.Environ(), "TELEPORT_HOME="+c.getSessionDir(env))
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return false
@@ -77,7 +85,14 @@ func (c *Client) CheckAuthenticationStatus(env, proxy string) bool {
 		return false
 	}
 
-	cmd := exec.Command(tshPath, "status", "--proxy="+proxy)
+	// Ensure session directory exists
+	if err := c.ensureSessionDir(env); err != nil {
+		return false
+	}
+
+	user := c.getEffectiveUser(env)
+	cmd := exec.Command(tshPath, "status", "--proxy="+proxy, "--user="+user)
+	cmd.Env = append(os.Environ(), "TELEPORT_HOME="+c.getSessionDir(env))
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return false
@@ -114,7 +129,14 @@ func (c *Client) GetSessionInfo(env, proxy string) *SessionInfo {
 		return info
 	}
 
-	cmd := exec.Command(tshPath, "status", "--proxy="+proxy)
+	// Ensure session directory exists
+	if err := c.ensureSessionDir(env); err != nil {
+		return info
+	}
+
+	user := c.getEffectiveUser(env)
+	cmd := exec.Command(tshPath, "status", "--proxy="+proxy, "--user="+user)
+	cmd.Env = append(os.Environ(), "TELEPORT_HOME="+c.getSessionDir(env))
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return info
@@ -186,7 +208,9 @@ func (c *Client) getRequiredTSHVersion(env string) string {
 
 // Login authenticates to a Teleport proxy
 func (c *Client) Login(proxy string) error {
-	cmd := exec.Command("tsh", "login", "--proxy="+proxy)
+	// For the generic login, use system user
+	user := c.getSystemUser()
+	cmd := exec.Command("tsh", "login", "--proxy="+proxy, "--user="+user)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -205,7 +229,16 @@ func (c *Client) LoginWithEnv(env, proxy string) error {
 		return fmt.Errorf("no tsh path available for environment %s", env)
 	}
 
-	cmd := exec.Command(tshPath, "login", "--proxy="+proxy)
+	// Ensure session directory exists
+	if err := c.ensureSessionDir(env); err != nil {
+		return fmt.Errorf("failed to create session directory for environment %s: %w", env, err)
+	}
+
+	// Get the effective user for this environment
+	user := c.getEffectiveUser(env)
+
+	cmd := exec.Command(tshPath, "login", "--proxy="+proxy, "--user="+user)
+	cmd.Env = append(os.Environ(), "TELEPORT_HOME="+c.getSessionDir(env))
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -233,7 +266,13 @@ func (c *Client) KubeLoginWithEnv(env, proxy, cluster string) error {
 		return fmt.Errorf("no tsh path available for environment %s", env)
 	}
 
+	// Ensure session directory exists
+	if err := c.ensureSessionDir(env); err != nil {
+		return fmt.Errorf("failed to create session directory for environment %s: %w", env, err)
+	}
+
 	cmd := exec.Command(tshPath, "--proxy="+proxy, "kube", "login", cluster)
+	cmd.Env = append(os.Environ(), "TELEPORT_HOME="+c.getSessionDir(env))
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -257,7 +296,13 @@ func (c *Client) GetClusters(env string) ([]string, error) {
 		return nil, fmt.Errorf("no tsh path available for environment %s", env)
 	}
 
+	// Ensure session directory exists
+	if err := c.ensureSessionDir(env); err != nil {
+		return nil, fmt.Errorf("failed to create session directory for environment %s: %w", env, err)
+	}
+
 	cmd := exec.Command(tshPath, "--proxy="+envConfig.Proxy, "kube", "ls", "--format=json")
+	cmd.Env = append(os.Environ(), "TELEPORT_HOME="+c.getSessionDir(env))
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get clusters: %w", err)
@@ -314,13 +359,24 @@ func (c *Client) GetClustersForCompletion(env string) ([]string, error) {
 		return []string{"⚠️  No tsh path available for environment '" + env + "'"}, nil
 	}
 
-	// Check if user is authenticated
+	// Check if user is authenticated - if not, authenticate in background
 	if !c.CheckAuthenticationStatus(env, envConfig.Proxy) {
-		return []string{"🔐 Not authenticated - run: tkube " + env + " <cluster> to authenticate"}, nil
+		// Attempt background authentication for tab completion
+		fmt.Fprintf(os.Stderr, "🔐 Authenticating to %s for tab completion...\n", envConfig.Proxy)
+		if err := c.LoginWithEnv(env, envConfig.Proxy); err != nil {
+			return []string{"❌ Authentication failed - run: tkube " + env + " <cluster> to authenticate"}, nil
+		}
+		fmt.Fprintf(os.Stderr, "✅ Authenticated successfully!\n")
+	}
+
+	// Ensure session directory exists
+	if err := c.ensureSessionDir(env); err != nil {
+		return []string{"⚠️  Failed to create session directory for environment '" + env + "'"}, nil
 	}
 
 	// Get clusters using the specific tsh version for this environment
 	cmd := exec.Command(tshPath, "--proxy="+envConfig.Proxy, "kube", "ls", "--format=json")
+	cmd.Env = append(os.Environ(), "TELEPORT_HOME="+c.getSessionDir(env))
 	output, err := cmd.Output()
 	if err != nil {
 		return []string{"⚠️  Failed to get clusters - check connection to " + envConfig.Proxy}, nil
@@ -371,6 +427,63 @@ func (c *Client) getTSHPath(env string) string {
 	return ""
 }
 
+// getSessionDir returns the isolated session directory for a specific environment
+func (c *Client) getSessionDir(env string) string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(homeDir, ".tkube", "sessions", env)
+}
+
+// ensureSessionDir creates the session directory if it doesn't exist
+func (c *Client) ensureSessionDir(env string) error {
+	sessionDir := c.getSessionDir(env)
+	if sessionDir == "" {
+		return fmt.Errorf("failed to get session directory for environment %s", env)
+	}
+	return os.MkdirAll(sessionDir, 0700)
+}
+
+// getEffectiveUser returns the effective user for an environment
+// Priority: environment-specific user > default user > system user
+func (c *Client) getEffectiveUser(env string) string {
+	config, err := c.configManager.Load()
+	if err != nil {
+		// Fallback to system user
+		return c.getSystemUser()
+	}
+
+	// Check for environment-specific user
+	if envConfig, exists := config.Environments[env]; exists && envConfig.User != "" {
+		return envConfig.User
+	}
+
+	// Check for default user
+	if config.DefaultUser != "" {
+		return config.DefaultUser
+	}
+
+	// Fallback to system user
+	return c.getSystemUser()
+}
+
+// getSystemUser returns the current system username
+func (c *Client) getSystemUser() string {
+	// Get current user for login/logout commands
+	currentUser := os.Getenv("USER")
+	if currentUser == "" {
+		// Fallback methods to get username
+		if homeDir, err := os.UserHomeDir(); err == nil {
+			currentUser = filepath.Base(homeDir)
+		}
+	}
+	if currentUser == "" {
+		currentUser = "unknown"
+	}
+	return currentUser
+}
+
 // IsTSHVersionInstalled checks if a specific tsh version is installed
 func (c *Client) IsTSHVersionInstalled(version string) bool {
 	homeDir, err := os.UserHomeDir()
@@ -416,6 +529,37 @@ func (c *Client) InstallTSHVersion(version string) error {
 // UninstallTSHVersion removes a specific tsh version
 func (c *Client) UninstallTSHVersion(version string) error {
 	return c.installer.UninstallVersion(version)
+}
+
+// LogoutWithEnv logs out from a Teleport proxy using environment-specific tsh
+func (c *Client) LogoutWithEnv(env, proxy string) error {
+	tshPath := c.getTSHPath(env)
+	if tshPath == "" {
+		return fmt.Errorf("no tsh path available for environment %s", env)
+	}
+
+	// Ensure session directory exists
+	if err := c.ensureSessionDir(env); err != nil {
+		return fmt.Errorf("failed to create session directory for environment %s: %w", env, err)
+	}
+
+	// For isolated sessions, we can simply logout from all sessions in this environment's session directory
+	// This is simpler and more reliable than targeting specific proxy/user combinations
+	cmd := exec.Command(tshPath, "logout")
+	cmd.Env = append(os.Environ(), "TELEPORT_HOME="+c.getSessionDir(env))
+	output, err := cmd.CombinedOutput()
+	
+	// If there's an error, check if it's because user is already logged out
+	if err != nil {
+		outputStr := string(output)
+		if strings.Contains(outputStr, "already logged out") || strings.Contains(outputStr, "Not logged in") {
+			// User is already logged out, this is not an error
+			return nil
+		}
+		return fmt.Errorf("logout failed: %w", err)
+	}
+	
+	return nil
 }
 
 // EnsureTSHVersion ensures that the required tsh version is installed for an environment

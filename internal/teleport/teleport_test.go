@@ -504,3 +504,69 @@ func TestClient_Login_Methods(t *testing.T) {
 		t.Error("Expected error for non-existent environment")
 	}
 }
+
+func TestClient_Logout_Methods(t *testing.T) {
+	if os.Getenv("CI") == "true" {
+		t.Skip("Skipping CI-unfriendly test in CI environment")
+	}
+	configManager, _ := config.NewManager()
+	client, _ := NewClient(configManager)
+
+	// Test LogoutWithEnv (should fail for non-existent environment)
+	err := client.LogoutWithEnv("nonexistent", "invalid.proxy.com:443")
+	if err == nil {
+		t.Error("Expected error for non-existent environment")
+	} else {
+		t.Logf("LogoutWithEnv failed as expected: %v", err)
+	}
+}
+
+func TestClient_LogoutWithEnv_WithValidConfig(t *testing.T) {
+	if os.Getenv("CI") == "true" {
+		t.Skip("Skipping CI-unfriendly test in CI environment")
+	}
+	// Create a temporary config file
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+
+	testConfig := &config.Config{
+		Environments: map[string]config.Environment{
+			"test": {Proxy: "test.proxy.com:443", TSHVersion: "14.0.0"},
+		},
+		AutoLogin: true,
+	}
+
+	data, _ := json.MarshalIndent(testConfig, "", "  ")
+	os.WriteFile(configPath, data, 0644)
+
+	configManager, _ := config.NewManager()
+	client, _ := NewClient(configManager)
+
+	// Test LogoutWithEnv with configured environment
+	err := client.LogoutWithEnv("test", "test.proxy.com:443")
+	if err == nil {
+		t.Log("LogoutWithEnv succeeded")
+	} else {
+		t.Logf("LogoutWithEnv failed as expected (tsh not installed): %v", err)
+	}
+}
+
+func TestClient_LogoutWithEnv_NoTSHPath(t *testing.T) {
+	if os.Getenv("CI") == "true" {
+		t.Skip("Skipping CI-unfriendly test in CI environment")
+	}
+	
+	configManager, _ := config.NewManager()
+	client, _ := NewClient(configManager)
+
+	// Test with environment that doesn't exist - should fail with no tsh path
+	err := client.LogoutWithEnv("completely-nonexistent-env", "test.proxy.com:443")
+	if err == nil {
+		t.Error("Expected error when no tsh path available for non-existent environment")
+	} else {
+		if !contains(err.Error(), "no tsh path available") {
+			t.Errorf("Expected 'no tsh path available' error, got: %v", err)
+		}
+		t.Logf("LogoutWithEnv failed as expected (no tsh path): %v", err)
+	}
+}

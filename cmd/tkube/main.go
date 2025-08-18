@@ -360,10 +360,56 @@ Any issues found will be reported with suggestions for fixes.`,
 	configCmd.AddCommand(configRemoveCmd)
 	configCmd.AddCommand(configValidateCmd)
 
+	// Create logout command
+	logoutCmd := &cobra.Command{
+		Use:   "logout [environment]",
+		Short: "Log out from Teleport servers",
+		Long: `Log out from current Teleport servers.
+
+Without arguments, logs out from all configured environments.
+With an environment name, logs out from that specific environment only.
+
+This command helps you:
+  • Clear authentication sessions when switching contexts
+  • Ensure security when working with multiple environments
+  • Force re-authentication for troubleshooting`,
+		Example: `  # Log out from all environments
+  tkube logout
+
+  # Log out from specific environment
+  tkube logout prod
+  tkube logout test`,
+		Args: cobra.MaximumNArgs(1),
+		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+			if len(args) == 0 {
+				// Complete environments for logout
+				envItems := shellProvider.GetEnvironmentsWithContext()
+				var completions []string
+				for _, item := range envItems {
+					if item.Category == "error" || item.Category == "help" {
+						completions = append(completions, item.Description)
+					} else {
+						completions = append(completions, item.Value+"\t"+item.Description)
+					}
+				}
+				return completions, cobra.ShellCompDirectiveNoFileComp
+			}
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var env string
+			if len(args) > 0 {
+				env = args[0]
+			}
+			return commandHandler.Logout(env)
+		},
+	}
+
 	// Add commands to root
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(configCmd)
+	rootCmd.AddCommand(logoutCmd)
 	rootCmd.AddCommand(tshVersionsCmd)
 	rootCmd.AddCommand(installTSHCmd)
 	rootCmd.AddCommand(autoDetectVersionsCmd)

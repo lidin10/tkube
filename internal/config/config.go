@@ -11,6 +11,7 @@ import (
 type Environment struct {
 	Proxy      string `json:"proxy"`
 	TSHVersion string `json:"tsh_version,omitempty"`
+	User       string `json:"user,omitempty"`
 }
 
 // VersionDetector interface for detecting tsh versions
@@ -22,6 +23,7 @@ type VersionDetector interface {
 type Config struct {
 	Environments map[string]Environment `json:"environments"`
 	AutoLogin    bool                   `json:"auto_login"`
+	DefaultUser  string                 `json:"default_user,omitempty"`
 }
 
 // Manager handles configuration operations
