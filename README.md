@@ -37,15 +37,15 @@ tkube version
 ```bash
 # Download the latest release for your platform
 # For Apple Silicon Macs
-curl -L https://github.com/lidin10/tkube/releases/latest/download/tkube_v2.0.0_darwin_arm64.tar.gz | tar xz
+curl -L https://github.com/lidin10/tkube/releases/latest/download/tkube_darwin_arm64.tar.gz | tar xz
 sudo mv tkube /usr/local/bin/
 
 # For Intel Macs
-curl -L https://github.com/lidin10/tkube/releases/latest/download/tkube_v2.0.0_darwin_amd64.tar.gz | tar xz
+curl -L https://github.com/lidin10/tkube/releases/latest/download/tkube_darwin_amd64.tar.gz | tar xz
 sudo mv tkube /usr/local/bin/
 
 # For Linux
-curl -L https://github.com/lidin10/tkube/releases/latest/download/tkube_v2.0.0_linux_amd64.tar.gz | tar xz
+curl -L https://github.com/lidin10/tkube/releases/latest/download/tkube_linux_amd64.tar.gz | tar xz
 sudo mv tkube /usr/local/bin/
 ```
 

@@ -3,7 +3,7 @@
 # Build variables
 BINARY_NAME=tkube
 BUILD_DIR=build
-VERSION?=1.2.0
+VERSION?=2.1.1
 
 # Build the application
 build:
