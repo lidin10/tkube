@@ -572,7 +572,7 @@ func (installer *TSHInstaller) GetInstalledVersions() ([]string, error) {
 		return nil, fmt.Errorf("failed to read tsh directory: %w", err)
 	}
 
-	var versions []string
+	versions := []string{}
 	for _, entry := range entries {
 		if entry.IsDir() {
 			version := entry.Name()
